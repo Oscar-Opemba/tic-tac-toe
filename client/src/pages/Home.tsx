@@ -2,8 +2,11 @@
  * MARK/THREE — Bauhaus Game Night
  * Warm paper, disciplined geometry, and an off-centre editorial game composition.
  */
-import { Bot, Check, Copy, RotateCcw, Sparkles, Trophy, Users, Volume2, VolumeX } from "lucide-react";
+import { Bot, Check, CircleHelp, Copy, Crown, Moon, Palette, RotateCcw, Sparkles, Sun, Trophy, Users, Volume2, VolumeX } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { trpc } from "@/lib/trpc";
+import { useTheme } from "../contexts/ThemeContext";
+import { Link } from "wouter";
 
 type Player = "X" | "O";
 type GameResult = Player | "DRAW" | null;
@@ -13,6 +16,10 @@ type PlayerRecord = Record<"wins" | "losses" | "draws", number>;
 type GameMode = "LOCAL" | "AI";
 type Difficulty = "EASY" | "HARD";
 type ShareFeedback = "idle" | "copied" | "failed";
+type WinAccent = "SAFFRON" | "MINT" | "VIOLET";
+type PlayerNames = Record<Player, string>;
+type LeaderboardFeedback = "idle" | "saved" | "failed";
+type LeaderboardPeriod = "ALL_TIME" | "MONTHLY" | "WEEKLY";
 
 const WINNING_LINES = [
   [0, 1, 2],
@@ -27,6 +34,12 @@ const WINNING_LINES = [
 
 const emptyBoard = (): Board => Array<Player | null>(9).fill(null);
 const availableMoves = (board: Board) => board.flatMap((cell, index) => (cell ? [] : [index]));
+const defaultPlayerNames: PlayerNames = { X: "Player One", O: "Player Two" };
+
+function normalizePlayerName(value: string, fallback: string): string {
+  const cleaned = value.trim().replace(/\s+/g, " ");
+  return /^[A-Za-z0-9 .'-]{2,24}$/.test(cleaned) ? cleaned : fallback;
+}
 
 function getRoundResult(board: Board): { result: GameResult; line: number[] } {
   for (const line of WINNING_LINES) {
@@ -92,6 +105,7 @@ function getStoredBoolean(key: string, fallback: boolean): boolean {
 }
 
 export default function Home() {
+  const { theme, toggleTheme } = useTheme();
   const [board, setBoard] = useState<Board>(emptyBoard);
   const [activePlayer, setActivePlayer] = useState<Player>("X");
   const [result, setResult] = useState<GameResult>(null);
@@ -105,12 +119,34 @@ export default function Home() {
   const [isThinking, setIsThinking] = useState(false);
   const [shareFeedback, setShareFeedback] = useState<ShareFeedback>("idle");
   const [soundEnabled, setSoundEnabled] = useState(() => getStoredBoolean("mark-three-sound-enabled", true));
+  const [winAccent, setWinAccent] = useState<WinAccent>(() => getStoredValue("mark-three-win-accent", "SAFFRON"));
+  const [playerNames, setPlayerNames] = useState<PlayerNames>(() => getStoredValue("mark-three-player-names", defaultPlayerNames));
+  const [nameNotice, setNameNotice] = useState("");
+  const [leaderboardFeedback, setLeaderboardFeedback] = useState<LeaderboardFeedback>("idle");
+  const [leaderboardPeriod, setLeaderboardPeriod] = useState<LeaderboardPeriod>("ALL_TIME");
+  const [leaderboardSeason, setLeaderboardSeason] = useState<string | undefined>(undefined);
+  const [showOnboarding, setShowOnboarding] = useState(() => !getStoredBoolean("mark-three-onboarding-seen", false));
   const audioContextRef = useRef<AudioContext | null>(null);
+  const leaderboardUtils = trpc.useUtils();
+  const leaderboardQuery = trpc.leaderboard.list.useQuery({ period: leaderboardPeriod, seasonKey: leaderboardSeason });
+  const seasonsQuery = trpc.leaderboard.seasons.useQuery();
+  const recordLeaderboard = trpc.leaderboard.record.useMutation({
+    onSuccess: () => {
+      setLeaderboardFeedback("saved");
+      leaderboardUtils.leaderboard.list.invalidate();
+    },
+    onError: () => setLeaderboardFeedback("failed"),
+  });
 
   const aiPlayer: Player = humanPlayer === "X" ? "O" : "X";
   const opponentName = gameMode === "AI" ? "The house" : "Player two";
   const isHumanTurn = gameMode === "LOCAL" || activePlayer === humanPlayer;
   const winningLineClass = winningLine.join("-");
+  const leaderboardNames = useMemo<PlayerNames>(() => ({
+    X: normalizePlayerName(playerNames.X, defaultPlayerNames.X),
+    O: normalizePlayerName(playerNames.O, defaultPlayerNames.O),
+  }), [playerNames]);
+  const humanName = leaderboardNames[humanPlayer];
 
   useEffect(() => {
     window.localStorage.setItem("mark-three-score", JSON.stringify(scores));
@@ -123,6 +159,17 @@ export default function Home() {
   useEffect(() => {
     window.localStorage.setItem("mark-three-sound-enabled", JSON.stringify(soundEnabled));
   }, [soundEnabled]);
+
+  useEffect(() => {
+    window.localStorage.setItem("mark-three-win-accent", JSON.stringify(winAccent));
+  }, [winAccent]);
+
+  useEffect(() => {
+    window.localStorage.setItem("mark-three-player-names", JSON.stringify({
+      X: normalizePlayerName(playerNames.X, defaultPlayerNames.X),
+      O: normalizePlayerName(playerNames.O, defaultPlayerNames.O),
+    }));
+  }, [playerNames]);
 
   const prepareAudio = useCallback(() => {
     if (typeof window === "undefined" || !window.AudioContext) return null;
@@ -170,6 +217,7 @@ export default function Home() {
     setBoard(nextBoard);
 
     if (nextResult) {
+      setLeaderboardFeedback("idle");
       setResult(nextResult);
       setWinningLine(line);
       setScores((current) => {
@@ -179,6 +227,20 @@ export default function Home() {
       if (gameMode === "AI") {
         const recordKey = nextResult === "DRAW" ? "draws" : nextResult === humanPlayer ? "wins" : "losses";
         setPlayerRecord((current) => ({ ...current, [recordKey]: current[recordKey] + 1 }));
+        recordLeaderboard.mutate({
+          playerName: humanName,
+          opponentName: "The house",
+          outcome: recordKey,
+          gameMode: "AI",
+          difficulty,
+        });
+      } else if (nextResult === "DRAW") {
+        recordLeaderboard.mutate({ playerName: leaderboardNames.X, opponentName: leaderboardNames.O, outcome: "draws", gameMode: "LOCAL", difficulty: "LOCAL" });
+        recordLeaderboard.mutate({ playerName: leaderboardNames.O, opponentName: leaderboardNames.X, outcome: "draws", gameMode: "LOCAL", difficulty: "LOCAL" });
+      } else {
+        const losingPlayer = nextResult === "X" ? "O" : "X";
+        recordLeaderboard.mutate({ playerName: leaderboardNames[nextResult], opponentName: leaderboardNames[losingPlayer], outcome: "wins", gameMode: "LOCAL", difficulty: "LOCAL" });
+        recordLeaderboard.mutate({ playerName: leaderboardNames[losingPlayer], opponentName: leaderboardNames[nextResult], outcome: "losses", gameMode: "LOCAL", difficulty: "LOCAL" });
       }
       playSound("win");
       return;
@@ -186,12 +248,17 @@ export default function Home() {
 
     playSound("mark", player);
     setActivePlayer(player === "X" ? "O" : "X");
-  }, [gameMode, humanPlayer, playSound]);
+  }, [difficulty, gameMode, humanName, humanPlayer, leaderboardNames, playSound, recordLeaderboard]);
 
   useEffect(() => {
     if (gameMode !== "AI" || activePlayer !== aiPlayer || result || isThinking || showPlayerSetup) return;
 
     setIsThinking(true);
+  }, [activePlayer, aiPlayer, gameMode, isThinking, result, showPlayerSetup]);
+
+  useEffect(() => {
+    if (gameMode !== "AI" || activePlayer !== aiPlayer || result || !isThinking || showPlayerSetup) return;
+
     const timer = window.setTimeout(() => {
       const moves = availableMoves(board);
       if (!moves.length) return;
@@ -211,12 +278,12 @@ export default function Home() {
   const status = useMemo(() => {
     if (result === "DRAW") return "The board is full. Call it even.";
     if (result === aiPlayer && gameMode === "AI") return "The house owns this line.";
-    if (result === humanPlayer && gameMode === "AI") return "You own this line.";
-    if (result) return `${result} owns this line.`;
+    if (result === humanPlayer && gameMode === "AI") return `${humanName} owns this line.`;
+    if (result) return `${playerNames[result]} owns this line.`;
     if (isThinking) return "The house is considering its mark.";
     if (gameMode === "AI") return activePlayer === humanPlayer ? "Place your next mark." : "The house takes a turn.";
     return `Place the next mark · ${activePlayer}.`;
-  }, [activePlayer, aiPlayer, gameMode, humanPlayer, isThinking, result]);
+  }, [activePlayer, aiPlayer, gameMode, humanName, humanPlayer, isThinking, playerNames, result]);
 
   const handleCellClick = (index: number) => {
     if (board[index] || result || isThinking || !isHumanTurn || showPlayerSetup) return;
@@ -224,6 +291,19 @@ export default function Home() {
     const nextBoard = [...board];
     nextBoard[index] = activePlayer;
     settleMove(nextBoard, activePlayer);
+  };
+
+  const updatePlayerName = (player: Player, value: string) => {
+    setNameNotice("");
+    setPlayerNames((current) => ({ ...current, [player]: value }));
+  };
+
+  const commitPlayerName = (player: Player) => {
+    const normalized = normalizePlayerName(playerNames[player], defaultPlayerNames[player]);
+    if (normalized !== playerNames[player]) {
+      setNameNotice("Names use 2–24 letters, numbers, spaces, dots, apostrophes, or hyphens.");
+    }
+    setPlayerNames((current) => ({ ...current, [player]: normalizePlayerName(current[player], defaultPlayerNames[player]) }));
   };
 
   const enterLocalTable = () => {
@@ -240,6 +320,7 @@ export default function Home() {
 
   const startSinglePlayer = () => {
     prepareAudio();
+    commitPlayerName(humanPlayer);
     setGameMode("AI");
     setShowPlayerSetup(false);
     setScores({ X: 0, O: 0, draws: 0 });
@@ -253,6 +334,11 @@ export default function Home() {
     setScores({ X: 0, O: 0, draws: 0 });
   };
 
+  const dismissOnboarding = () => {
+    window.localStorage.setItem("mark-three-onboarding-seen", JSON.stringify(true));
+    setShowOnboarding(false);
+  };
+
   const resetRecord = () => setPlayerRecord({ wins: 0, losses: 0, draws: 0 });
 
   const copyFinalState = async () => {
@@ -264,7 +350,7 @@ export default function Home() {
       ...boardRows,
       `${outcome} · ${gameMode === "AI" ? `${difficulty.toLowerCase()} house, you played ${humanPlayer}` : "local table"}`,
       `Table score — X ${scores.X} : O ${scores.O} : Draws ${scores.draws}`,
-      ...(gameMode === "AI" ? [`Your record — W ${playerRecord.wins} : L ${playerRecord.losses} : D ${playerRecord.draws}`] : []),
+      ...(gameMode === "AI" ? [`${humanName}'s record — W ${playerRecord.wins} : L ${playerRecord.losses} : D ${playerRecord.draws}`] : []),
     ].join("\n");
 
     try {
@@ -289,7 +375,7 @@ export default function Home() {
   };
 
   return (
-    <main className="game-page">
+    <main className={`game-page accent-${winAccent.toLowerCase()}`}>
       <div className="paper-field" aria-hidden="true" />
       <div className="graphic-orbit orbit-one" aria-hidden="true" />
       <div className="graphic-orbit orbit-two" aria-hidden="true" />
@@ -297,11 +383,16 @@ export default function Home() {
       <div className="page-frame">
         <header className="masthead">
           <a className="brand" href="#game" aria-label="MARK/THREE game board">
-            <img src="/mark-three/mark-three-logo.png" alt="" className="brand-mark" />
+            <img src="/manus-storage/mark-three-logo_295783a0.png" alt="" className="brand-mark" />
             <span className="brand-name">MARK/<em>THREE</em></span>
           </a>
           <p className="masthead-note">{gameMode === "AI" ? `A quiet match against the house. You are ${humanPlayer}.` : "A nine-square ritual for two."}</p>
           <div className="masthead-actions">
+            <button className="guide-toggle" onClick={() => setShowOnboarding(true)} type="button" aria-label="Open game guide"><CircleHelp size={16} aria-hidden="true" /><span>Guide</span></button>
+            <button className="theme-toggle" onClick={toggleTheme} type="button" aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}>
+              {theme === "dark" ? <Sun size={16} aria-hidden="true" /> : <Moon size={16} aria-hidden="true" />}
+              <span>{theme === "dark" ? "Light" : "Dark"}</span>
+            </button>
             <button className={`sound-toggle ${soundEnabled ? "is-on" : ""}`} onClick={() => { prepareAudio(); setSoundEnabled((current) => !current); }} type="button" aria-label={soundEnabled ? "Mute game sounds" : "Unmute game sounds"} aria-pressed={soundEnabled}>
               {soundEnabled ? <Volume2 size={16} aria-hidden="true" /> : <VolumeX size={16} aria-hidden="true" />}
               <span>{soundEnabled ? "Sound on" : "Sound off"}</span>
@@ -328,7 +419,7 @@ export default function Home() {
 
         <section className="play-area" id="game" aria-label="Tic-Tac-Toe game">
           <div className="board-panel">
-            <img className="board-art" src="/mark-three/bauhaus-game-night-hero.png" alt="" aria-hidden="true" />
+            <img className="board-art" src="/manus-storage/bauhaus-game-night-hero_40fdb545.png" alt="" aria-hidden="true" />
             <div className="round-topline">
               <span className="round-label">{isThinking ? "The house is thinking" : "The square is yours"}</span>
               <span className={`player-chip chip-${result ? "finished" : activePlayer.toLowerCase()} ${isThinking ? "is-thinking" : ""}`}>
@@ -357,6 +448,21 @@ export default function Home() {
                   </div>
                 </div>
               )}
+              <div className="setting-group accent-settings">
+                <span className="setting-label"><Palette size={12} aria-hidden="true" /> Win color</span>
+                <div className="accent-picker" role="group" aria-label="Choose winning accent color">
+                  {(["SAFFRON", "MINT", "VIOLET"] as const).map((accent) => (
+                    <button key={accent} type="button" className={`accent-dot accent-${accent.toLowerCase()} ${winAccent === accent ? "is-selected" : ""}`} onClick={() => setWinAccent(accent)} aria-label={`${accent.toLowerCase()} winning accent`} aria-pressed={winAccent === accent} />
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="name-settings" aria-label="Player name settings">
+              <span className="setting-label">Name cards</span>
+              <label><span className="name-mark mark-x-mini">X</span><input value={playerNames.X} maxLength={24} onChange={(event) => updatePlayerName("X", event.target.value)} onBlur={() => commitPlayerName("X")} aria-label="X player name" /></label>
+              <label><span className="name-mark mark-o-mini">O</span><input value={playerNames.O} maxLength={24} onChange={(event) => updatePlayerName("O", event.target.value)} onBlur={() => commitPlayerName("O")} aria-label="O player name" /></label>
+              {nameNotice && <p className="name-notice" role="status">{nameNotice}</p>}
             </div>
 
             <div className={`game-board ${isThinking ? "is-thinking" : ""}`} role="group" aria-label="Three by three Tic-Tac-Toe board">
@@ -380,6 +486,7 @@ export default function Home() {
                 <p className="eyebrow"><Bot size={14} aria-hidden="true" /> Single-player setup</p>
                 <h2 id="player-setup-title">Choose your mark.</h2>
                 <p>You can open as X, or let the house make the first move while you take O.</p>
+                <label className="setup-name">Your name<input value={playerNames[humanPlayer]} maxLength={24} onChange={(event) => updatePlayerName(humanPlayer, event.target.value)} onBlur={() => commitPlayerName(humanPlayer)} aria-label="Your player name" /></label>
                 <div className="mark-picker" role="group" aria-label="Choose your player mark">
                   <button type="button" className={humanPlayer === "X" ? "is-selected pick-x" : "pick-x"} onClick={() => setHumanPlayer("X")} aria-pressed={humanPlayer === "X"}>X <span>You open</span></button>
                   <button type="button" className={humanPlayer === "O" ? "is-selected pick-o" : "pick-o"} onClick={() => setHumanPlayer("O")} aria-pressed={humanPlayer === "O"}>O <span>House opens</span></button>
@@ -417,20 +524,38 @@ export default function Home() {
             </div>
 
             <div className="score-list">
-              <div className="score-row score-x"><span className="score-symbol">X</span><span className="score-name">{gameMode === "AI" ? humanPlayer === "X" ? "You" : "The house" : "Player one"}</span><strong>{scores.X}</strong></div>
-              <div className="score-row score-o"><span className="score-symbol">O</span><span className="score-name">{gameMode === "AI" ? humanPlayer === "O" ? "You" : "The house" : opponentName}</span><strong>{scores.O}</strong></div>
+              <div className="score-row score-x"><span className="score-symbol">X</span><span className="score-name">{gameMode === "AI" ? humanPlayer === "X" ? humanName : "The house" : playerNames.X}</span><strong>{scores.X}</strong></div>
+              <div className="score-row score-o"><span className="score-symbol">O</span><span className="score-name">{gameMode === "AI" ? humanPlayer === "O" ? humanName : "The house" : playerNames.O}</span><strong>{scores.O}</strong></div>
               <div className="score-row score-draw"><span className="score-symbol">=</span><span className="score-name">Draws</span><strong>{scores.draws}</strong></div>
             </div>
 
             {gameMode === "AI" && (
               <section className="player-record" aria-label="Your persistent record">
-                <div className="record-heading"><span>Your record</span><button type="button" onClick={resetRecord}>Reset</button></div>
+                <div className="record-heading"><span>{humanName}'s record</span><button type="button" onClick={resetRecord}>Reset</button></div>
                 <div className="record-values"><span><b>{playerRecord.wins}</b>W</span><span><b>{playerRecord.losses}</b>L</span><span><b>{playerRecord.draws}</b>D</span></div>
               </section>
             )}
 
+            <section className="global-leaderboard" aria-label="Global leaderboard">
+              <div className="leaderboard-heading"><span><Crown size={14} aria-hidden="true" /> Global board</span><button type="button" onClick={() => leaderboardUtils.leaderboard.list.invalidate()} aria-label="Refresh global leaderboard">Refresh</button></div>
+              <div className="leaderboard-filters" role="group" aria-label="Choose leaderboard period">
+                {(["ALL_TIME", "MONTHLY", "WEEKLY"] as const).map(period => <button key={period} type="button" className={leaderboardPeriod === period && !leaderboardSeason ? "is-selected" : ""} onClick={() => { setLeaderboardPeriod(period); setLeaderboardSeason(undefined); }} aria-pressed={leaderboardPeriod === period && !leaderboardSeason}>{period === "ALL_TIME" ? "All" : period === "MONTHLY" ? "Month" : "Week"}</button>)}
+              </div>
+              <label className="season-ledger">Season ledger
+                <select value={leaderboardSeason ?? ""} onChange={(event) => { setLeaderboardSeason(event.target.value || undefined); setLeaderboardPeriod("ALL_TIME"); }} aria-label="Choose seasonal leaderboard archive">
+                  <option value="">All seasons</option>
+                  {seasonsQuery.data?.map(season => <option key={season.key} value={season.key}>{season.label}{season.archived ? " · archive" : " · live"}</option>)}
+                </select>
+              </label>
+              {leaderboardQuery.isPending ? <p className="leaderboard-state">Setting the table…</p> : leaderboardQuery.isError ? <p className="leaderboard-state">Board unavailable.</p> : leaderboardQuery.data?.length ? (
+                <ol className="leaderboard-list">{leaderboardQuery.data.map((entry, index) => <li key={entry.playerName}><span>{String(index + 1).padStart(2, "0")}</span><Link href={`/players/${encodeURIComponent(entry.playerName)}`}>{entry.playerName}</Link><em>{entry.wins}W · {entry.draws}D</em></li>)}</ol>
+              ) : <p className="leaderboard-state">No finished games yet.</p>}
+              {leaderboardFeedback === "saved" && <p className="leaderboard-feedback is-saved" role="status">Score pressed onto the global card.</p>}
+              {leaderboardFeedback === "failed" && <p className="leaderboard-feedback is-failed" role="status">Score could not reach the global card. Try again after the next round.</p>}
+            </section>
+
             <figure className="side-poster">
-              <img src="/mark-three/mark-three-side-poster.png" alt="Abstract red, blue and black game shapes." />
+              <img src="/manus-storage/mark-three-side-poster_0f2c236d.png" alt="Abstract red, blue and black game shapes." />
               <figcaption>{gameMode === "AI" ? <>Meet the house.<br />Leave a line.</> : <>Choose a side.<br />Leave a line.</>}</figcaption>
             </figure>
           </aside>
@@ -438,6 +563,20 @@ export default function Home() {
 
         <footer className="page-footer"><span>MARK/THREE</span><span>Built for quick games &amp; long rivalries.</span><span>© 2026</span></footer>
       </div>
+      {showOnboarding && (
+        <section className="onboarding-backdrop" role="dialog" aria-modal="true" aria-labelledby="onboarding-title">
+          <div className="onboarding-card">
+            <p className="eyebrow"><Sparkles size={14} aria-hidden="true" /> First marks</p>
+            <h2 id="onboarding-title">A quick table guide.</h2>
+            <div className="onboarding-steps">
+              <article><b>01</b><div><h3>Choose the table</h3><p>Play a local two-player round or face the house by choosing X or O.</p></div></article>
+              <article><b>02</b><div><h3>Set the house</h3><p>Easy makes a quick random reply. Hard calculates the strongest available move.</p></div></article>
+              <article><b>03</b><div><h3>Make it yours</h3><p>Name each card, choose a winning accent, and use the moon control to switch the paper after dark.</p></div></article>
+            </div>
+            <button className="primary-action onboarding-action" type="button" onClick={dismissOnboarding}>Take your seat</button>
+          </div>
+        </section>
+      )}
     </main>
   );
 }

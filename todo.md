@@ -15,3 +15,29 @@
 - [x] Create a new public GitHub repository named `tic-tac-toe`.
 - [x] Transfer the Vercel-ready game source to the new repository’s `main` branch.
 - [x] Verify the new public repository URL, visibility, and build configuration.
+- [x] Add a themed dark/light mode with saved preference and custom win-color accents.
+- [x] Add persistent player-name settings for local and single-player games.
+- [x] Enable database storage and implement a shared global leaderboard.
+- [x] Preview the game in the browser and validate AI choices and animation feedback.
+- [x] Validate and normalize custom player names before saving or submitting scores.
+- [x] Add visible leaderboard submission success and error feedback.
+- [x] Verify easy and hard AI modes, a finished-round winning line, and a persisted leaderboard entry in the browser.
+- [x] Persist only normalized or fallback player names to local storage.
+- [x] Capture explicit browser evidence of the displayed winning-line stroke after a completed round.
+- [x] Store per-player public match history and calculate profile win rates.
+- [x] Add public player-profile pages for custom player names.
+- [x] Add weekly, monthly, and all-time leaderboard sorting.
+- [x] Add a concise first-run onboarding modal for modes, AI difficulty, and accents.
+- [x] Validate profile history, leaderboard periods, and onboarding in the browser.
+- [x] Add persistent custom avatars and unique player-card colors for named players.
+- [x] Calculate and display head-to-head rivalry statistics for each player pair.
+- [x] Add seasonal leaderboard records with automatic current-season rollover and archived results.
+- [x] Build profile, rivalry, and seasonal archive interfaces in the game.
+- [x] Validate the personalized profile, rivalry, and seasonal leaderboard flows in the browser.
+- [x] Make each saved player-card color visibly alter the public profile card.
+- [x] Verify avatar and color persistence through a browser reload or navigation.
+- [x] Re-check profile customization, rivalry display, and live/archive seasonal views after the color fix.
+- [x] Confirm rendered player-card colors and restored avatar/color selections after profile navigation.
+- [x] Re-verify rivalry panel plus live and archived seasonal leaderboards after the color fix.
+- [x] Confirm the active live-season leaderboard independently from the archived ledger after the color fix.
+- [x] Push the latest personalized profile and seasonal leaderboard implementation to the public `tic-tac-toe` repository’s `main` branch.

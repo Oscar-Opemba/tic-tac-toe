@@ -1,0 +1,24 @@
+CREATE TABLE `leaderboard_entries` (
+	`id` int AUTO_INCREMENT NOT NULL,
+	`playerName` varchar(24) NOT NULL,
+	`wins` int NOT NULL DEFAULT 0,
+	`losses` int NOT NULL DEFAULT 0,
+	`draws` int NOT NULL DEFAULT 0,
+	`updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
+	CONSTRAINT `leaderboard_entries_id` PRIMARY KEY(`id`),
+	CONSTRAINT `leaderboard_entries_playerName_unique` UNIQUE(`playerName`)
+);
+--> statement-breakpoint
+CREATE TABLE `users` (
+	`id` int AUTO_INCREMENT NOT NULL,
+	`openId` varchar(64) NOT NULL,
+	`name` text,
+	`email` varchar(320),
+	`loginMethod` varchar(64),
+	`role` enum('user','admin') NOT NULL DEFAULT 'user',
+	`createdAt` timestamp NOT NULL DEFAULT (now()),
+	`updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
+	`lastSignedIn` timestamp NOT NULL DEFAULT (now()),
+	CONSTRAINT `users_id` PRIMARY KEY(`id`),
+	CONSTRAINT `users_openId_unique` UNIQUE(`openId`)
+);

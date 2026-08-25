@@ -1,0 +1,27 @@
+{
+  "version": "7",
+  "dialect": "mysql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "5",
+      "when": 1787692960963,
+      "tag": "0000_condemned_mentor",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "5",
+      "when": 1787694750226,
+      "tag": "0001_next_hairball",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1787695581713,
+      "tag": "0002_loose_krista_starr",
+      "breakpoints": true
+    }
+  ]
+}
