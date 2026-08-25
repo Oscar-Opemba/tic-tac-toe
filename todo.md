@@ -12,6 +12,6 @@
 - [x] Verify outcomes, player-side switching, sound controls, and responsive behavior.
 - [x] Push the completed update to the repository’s `main` branch.
 - [x] Verify the configured GitHub repository, remote URL, and `main` branch visibility.
-- [ ] Create a new public GitHub repository named `tic-tac-toe`.
-- [ ] Transfer the Vercel-ready game source to the new repository’s `main` branch.
-- [ ] Verify the new public repository URL, visibility, and build configuration.
+- [x] Create a new public GitHub repository named `tic-tac-toe`.
+- [x] Transfer the Vercel-ready game source to the new repository’s `main` branch.
+- [x] Verify the new public repository URL, visibility, and build configuration.
